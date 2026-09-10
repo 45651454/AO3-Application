@@ -52,6 +52,18 @@ class ParserTest {
     }
 
     @Test
+    fun parseSingleChapterWorkText() {
+        val detail = Parser.parseWork(fixture("work_single.html"), 63097L)
+        assertEquals("Peter", detail.title)
+        assertEquals("SecondSilk", detail.author)
+        assertEquals(1, detail.chapters.size)
+        assertTrue(detail.chapters.first().html.contains("Peter's mother sent him to the train"))
+        assertFalse(detail.chapters.first().html.contains("Work Text"))
+        assertEquals("1/1", detail.stats["chapters"])
+        assertEquals("2010-02-16", detail.stats["published"])
+    }
+
+    @Test
     fun parseWorkWithoutReadableChaptersThrowsWithNotice() {
         val html = """
             <html><body>

@@ -67,12 +67,19 @@ object Parser {
         val stats = LinkedHashMap<String, String>()
         doc.selectFirst("dd.language")?.let { stats["language"] = it.text() }
         stats.putAll(parseStats(doc.selectFirst("dd.stats dl.stats")))
-        val chapters = chaptersEl.children().filter { it.hasClass("chapter") }.map { ch ->
-            val content = ch.children().firstOrNull { it.hasClass("userstuff") }
-            Chapter(
-                title = ch.selectFirst("h3.title")?.text()?.trim().orEmpty(),
-                html = sanitizeContent(content?.html().orEmpty()),
-            )
+        val chapterDivs = chaptersEl.children().filter { it.hasClass("chapter") }
+        val chapters = if (chapterDivs.isNotEmpty()) {
+            chapterDivs.map { ch ->
+                val content = ch.children().firstOrNull { it.hasClass("userstuff") }
+                Chapter(
+                    title = ch.selectFirst("h3.title")?.text()?.trim().orEmpty(),
+                    html = sanitizeContent(content?.html().orEmpty()),
+                )
+            }
+        } else {
+            // 单章作品（x/1）：#chapters 下没有 .chapter 包装，正文 .userstuff 是直接子元素
+            chaptersEl.children().filter { it.hasClass("userstuff") }
+                .map { Chapter(title = "", html = sanitizeContent(it.html())) }
         }
         if (chapters.isEmpty() || chapters.all { it.html.isBlank() }) {
             // 仅登录可见/未公开的作品：#chapters 里没有章节内容，只有提示文字
