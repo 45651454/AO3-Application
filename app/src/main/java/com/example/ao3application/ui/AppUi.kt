@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -17,17 +18,23 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.example.ao3application.data.Repo
+import com.example.ao3application.data.ThemeMode
 
 sealed interface Screen {
     data object Browse : Screen
     data object Library : Screen
+    data object Settings : Screen
     data class BrowseTag(val url: String, val label: String) : Screen
     data class Detail(val id: Long) : Screen
     data class Reader(val id: Long) : Screen
 }
 
 @Composable
-fun AppUi(repo: Repo) {
+fun AppUi(
+    repo: Repo,
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
+) {
     val stack = remember { mutableStateOf(listOf<Screen>(Screen.Browse)) }
     val browseState = remember { BrowseUiState() }
     val push: (Screen) -> Unit = { stack.value = stack.value + it }
@@ -39,7 +46,7 @@ fun AppUi(repo: Repo) {
 
     Scaffold(
         bottomBar = {
-            if (current is Screen.Browse || current is Screen.Library) {
+            if (current is Screen.Browse || current is Screen.Library || current is Screen.Settings) {
                 NavigationBar {
                     NavigationBarItem(
                         selected = current is Screen.Browse,
@@ -52,6 +59,12 @@ fun AppUi(repo: Repo) {
                         onClick = { switchTo(Screen.Library) },
                         icon = { Icon(Icons.Filled.Favorite, contentDescription = null) },
                         label = { Text("书库") },
+                    )
+                    NavigationBarItem(
+                        selected = current is Screen.Settings,
+                        onClick = { switchTo(Screen.Settings) },
+                        icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                        label = { Text("设置") },
                     )
                 }
             }
@@ -70,6 +83,12 @@ fun AppUi(repo: Repo) {
                     repo = repo,
                     onOpenWork = { push(Screen.Detail(it)) },
                     onOpenTag = { tag -> push(Screen.BrowseTag(tag.href, tag.name)) },
+                )
+
+                is Screen.Settings -> SettingsScreen(
+                    repo = repo,
+                    themeMode = themeMode,
+                    onThemeModeChange = onThemeModeChange,
                 )
 
                 is Screen.BrowseTag -> BrowseScreen(

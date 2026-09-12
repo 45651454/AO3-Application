@@ -1,8 +1,5 @@
 package com.example.ao3application.ui
 
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -12,22 +9,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
@@ -45,10 +35,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.ao3application.data.ExportImport
 import com.example.ao3application.data.HistoryEntry
 import com.example.ao3application.data.Repo
 import com.example.ao3application.data.SavedWork
@@ -88,12 +76,10 @@ fun LibraryScreen(
     var downloads by remember { mutableStateOf(emptyList<SavedWork>()) }
     var tagFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var untaggedOnly by rememberSaveable { mutableStateOf(false) }
-    var menuOpen by remember { mutableStateOf(false) }
     var pendingFavorite by remember { mutableStateOf<SavedWork?>(null) }
     var pendingHistory by remember { mutableStateOf<HistoryEntry?>(null) }
     var pendingTag by remember { mutableStateOf<TagFavorite?>(null) }
     var pendingDownload by remember { mutableStateOf<SavedWork?>(null) }
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(refresh) {
@@ -105,77 +91,12 @@ fun LibraryScreen(
         }
     }
 
-    val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val ok = withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.openOutputStream(uri)?.use {
-                        it.write(ExportImport.exportFrom(repo.db).toByteArray(Charsets.UTF_8))
-                    }
-                }.isSuccess
-            }
-            Toast.makeText(context, if (ok) "导出完成" else "导出失败", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    val text = context.contentResolver.openInputStream(uri)?.use {
-                        it.readBytes().toString(Charsets.UTF_8)
-                    } ?: error("无法读取文件")
-                    ExportImport.importInto(repo.db, text)
-                }
-            }
-            result.onSuccess { (favCount, histCount, tagCount) ->
-                Toast.makeText(
-                    context,
-                    "导入完成：收藏 $favCount 条，新增历史 $histCount 条，标签 $tagCount 条",
-                    Toast.LENGTH_LONG,
-                ).show()
-                refresh++
-            }.onFailure {
-                Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("书库", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = { menuOpen = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "更多")
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text("导出备份") },
-                    onClick = {
-                        menuOpen = false
-                        exportLauncher.launch("ao3-backup.json")
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("导入备份") },
-                    onClick = {
-                        menuOpen = false
-                        importLauncher.launch(
-                            arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")
-                        )
-                    },
-                )
-            }
-        }
+        Text(
+            "书库",
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+            style = MaterialTheme.typography.titleLarge,
+        )
 
         PrimaryTabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("收藏 (${favorites.size})") })

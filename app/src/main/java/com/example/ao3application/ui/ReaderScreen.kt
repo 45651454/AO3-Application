@@ -3,7 +3,6 @@ package com.example.ao3application.ui
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,6 +35,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.example.ao3application.data.AO3_BASE
 import com.example.ao3application.data.Repo
 import com.example.ao3application.data.WorkDetail
+import com.example.ao3application.ui.theme.LocalDarkTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -50,7 +50,7 @@ fun ReaderScreen(repo: Repo, workId: Long, onBack: () -> Unit) {
     var startFraction by remember { mutableStateOf(0f) }
     var startDownloaded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val dark = isSystemInDarkTheme()
+    val dark = LocalDarkTheme.current
 
     val restored = remember { mutableStateOf(false) }
     val lastFraction = remember { mutableStateOf(0f) }

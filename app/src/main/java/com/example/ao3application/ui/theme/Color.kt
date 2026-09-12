@@ -1,6 +1,5 @@
 package com.example.ao3application.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -44,7 +43,7 @@ fun tagColors(category: String): TagColors {
         MaterialTheme.colorScheme.surfaceVariant,
         MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    return if (isSystemInDarkTheme()) {
+    return if (LocalDarkTheme.current) {
         TagColors(Color.hsl(hue, sat * 0.40f, 0.20f), Color.hsl(hue, sat, 0.80f))
     } else {
         TagColors(Color.hsl(hue, sat * 0.45f, 0.93f), Color.hsl(hue, sat, 0.32f))
