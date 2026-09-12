@@ -5,9 +5,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,17 +18,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,17 +60,39 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * 收藏筛选。[untaggedOnly] 只留收藏时没打标签的；否则按 [tag] 过滤，[tag] 为 null 表示全部。
+ * 两者分开传参而不是用一个字符串哨兵，免得跟用户真起的同名标签撞车。
+ */
+internal fun filterFavorites(
+    favorites: List<SavedWork>,
+    tag: String?,
+    untaggedOnly: Boolean,
+): List<SavedWork> = when {
+    untaggedOnly -> favorites.filter { it.tags.isEmpty() }
+    tag == null -> favorites
+    else -> favorites.filter { tag in it.tags }
+}
+
 @Composable
-fun LibraryScreen(repo: Repo, onOpenWork: (Long) -> Unit, onOpenTag: (TagFavorite) -> Unit) {
+fun LibraryScreen(
+    repo: Repo,
+    onOpenWork: (Long) -> Unit,
+    onOpenTag: (TagFavorite) -> Unit,
+) {
     var tab by rememberSaveable { mutableStateOf(0) }
     var refresh by remember { mutableStateOf(0) }
     var favorites by remember { mutableStateOf(emptyList<SavedWork>()) }
     var history by remember { mutableStateOf(emptyList<HistoryEntry>()) }
     var tagFavorites by remember { mutableStateOf(emptyList<TagFavorite>()) }
+    var downloads by remember { mutableStateOf(emptyList<SavedWork>()) }
+    var tagFilter by rememberSaveable { mutableStateOf<String?>(null) }
+    var untaggedOnly by rememberSaveable { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var pendingFavorite by remember { mutableStateOf<SavedWork?>(null) }
     var pendingHistory by remember { mutableStateOf<HistoryEntry?>(null) }
     var pendingTag by remember { mutableStateOf<TagFavorite?>(null) }
+    var pendingDownload by remember { mutableStateOf<SavedWork?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -73,6 +101,7 @@ fun LibraryScreen(repo: Repo, onOpenWork: (Long) -> Unit, onOpenTag: (TagFavorit
             favorites = repo.db.favorites()
             history = repo.db.history()
             tagFavorites = repo.db.tagFavorites()
+            downloads = repo.db.downloads()
         }
     }
 
@@ -152,22 +181,76 @@ fun LibraryScreen(repo: Repo, onOpenWork: (Long) -> Unit, onOpenTag: (TagFavorit
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("收藏 (${favorites.size})") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("历史 (${history.size})") })
             Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("标签 (${tagFavorites.size})") })
+            Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("已下载 (${downloads.size})") })
         }
 
         if (tab == 0) {
             if (favorites.isEmpty()) {
-                EmptyHint("还没有收藏。\n在作品详情页点 ♡ 即可收藏。")
+                EmptyHint("还没有收藏。\n在作品详情页点 ♡ 收藏，长按 ♡ 可按标签收藏。")
             } else {
-                LazyColumn(Modifier.fillMaxSize()) {
-                    item { ListHint() }
-                    items(favorites, key = { it.id }) { fav ->
-                        LibraryRow(
-                            title = fav.title,
-                            subtitle = "by ${fav.author} · ${fmtTime(fav.savedAt)}",
-                            progress = null,
-                            onClick = { onOpenWork(fav.id) },
-                            onLongClick = { pendingFavorite = fav },
+                val allTags = favorites.flatMap { it.tags }.distinct().sorted()
+                val hasUntagged = favorites.any { it.tags.isEmpty() }
+                val active = tagFilter?.takeIf { it in allTags }
+                val showUntagged = untaggedOnly && hasUntagged
+                val shown = filterFavorites(favorites, active, showUntagged)
+
+                if (allTags.isNotEmpty() || hasUntagged) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        FilterChip(
+                            selected = active == null && !showUntagged,
+                            onClick = {
+                                tagFilter = null
+                                untaggedOnly = false
+                            },
+                            label = { Text("全部") },
                         )
+                        if (hasUntagged) {
+                            FilterChip(
+                                selected = showUntagged,
+                                onClick = {
+                                    untaggedOnly = !untaggedOnly
+                                    tagFilter = null
+                                },
+                                label = { Text("未标注") },
+                            )
+                        }
+                        allTags.forEach { tag ->
+                            FilterChip(
+                                selected = active == tag,
+                                onClick = {
+                                    tagFilter = if (active == tag) null else tag
+                                    untaggedOnly = false
+                                },
+                                label = { Text(tag) },
+                            )
+                        }
+                    }
+                }
+
+                if (shown.isEmpty()) {
+                    EmptyHint(
+                        if (showUntagged) "收藏里没有未标注标签的作品。"
+                        else "没有标签「$active」的收藏。"
+                    )
+                } else {
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        item { ListHint() }
+                        items(shown, key = { it.id }) { fav ->
+                            LibraryRow(
+                                title = fav.title,
+                                subtitle = "by ${fav.author} · ${fmtTime(fav.savedAt)}",
+                                progress = null,
+                                tags = fav.tags,
+                                onClick = { onOpenWork(fav.id) },
+                                onLongClick = { pendingFavorite = fav },
+                            )
+                        }
                     }
                 }
             }
@@ -190,7 +273,7 @@ fun LibraryScreen(repo: Repo, onOpenWork: (Long) -> Unit, onOpenTag: (TagFavorit
                     }
                 }
             }
-        } else {
+        } else if (tab == 2) {
             if (tagFavorites.isEmpty()) {
                 EmptyHint("还没有收藏的标签。\n在作品详情页长按标签即可收藏。")
             } else {
@@ -203,6 +286,23 @@ fun LibraryScreen(repo: Repo, onOpenWork: (Long) -> Unit, onOpenTag: (TagFavorit
                             progress = null,
                             onClick = { onOpenTag(tag) },
                             onLongClick = { pendingTag = tag },
+                        )
+                    }
+                }
+            }
+        } else {
+            if (downloads.isEmpty()) {
+                EmptyHint("还没有下载的文章。\n在阅读页右上角点「下载」即可离线保存。")
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    item { ListHint() }
+                    items(downloads, key = { it.id }) { work ->
+                        LibraryRow(
+                            title = work.title,
+                            subtitle = "by ${work.author} · 下载于 ${fmtTime(work.savedAt)}",
+                            progress = null,
+                            onClick = { onOpenWork(work.id) },
+                            onLongClick = { pendingDownload = work },
                         )
                     }
                 }
@@ -252,14 +352,29 @@ fun LibraryScreen(repo: Repo, onOpenWork: (Long) -> Unit, onOpenTag: (TagFavorit
             onDismiss = { pendingTag = null },
         )
     }
+    pendingDownload?.let { work ->
+        ConfirmDelete(
+            title = "删除下载",
+            text = "确定删除《${work.title}》的下载吗？删除后需要联网重新下载才能离线阅读。",
+            onConfirm = {
+                scope.launch {
+                    withContext(Dispatchers.IO) { repo.db.removeDownload(work.id) }
+                    pendingDownload = null
+                    refresh++
+                }
+            },
+            onDismiss = { pendingDownload = null },
+        )
+    }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun LibraryRow(
     title: String,
     subtitle: String,
     progress: Float?,
+    tags: List<String> = emptyList(),
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -276,6 +391,23 @@ private fun LibraryRow(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (tags.isNotEmpty()) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                tags.forEach { tag ->
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ) {
+                        Text(
+                            tag,
+                            Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+            }
+        }
         if (progress != null && progress > 0.01f) {
             LinearProgressIndicator(
                 progress = { progress },

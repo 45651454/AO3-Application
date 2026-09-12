@@ -48,6 +48,7 @@ fun ReaderScreen(repo: Repo, workId: Long, onBack: () -> Unit) {
     var reload by remember { mutableStateOf(0) }
     var ready by remember { mutableStateOf(false) }
     var startFraction by remember { mutableStateOf(0f) }
+    var startDownloaded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val dark = isSystemInDarkTheme()
 
@@ -60,7 +61,10 @@ fun ReaderScreen(repo: Repo, workId: Long, onBack: () -> Unit) {
         error = null
         ready = false
         try {
-            val d = repo.work(workId)
+            // 下载过的直接读本地副本，断网也能看
+            val local = withContext(Dispatchers.IO) { repo.db.downloadedWork(workId) }
+            val d = local ?: repo.work(workId)
+            startDownloaded = local != null
             val existing = withContext(Dispatchers.IO) {
                 val p = repo.db.progressFor(workId)
                 repo.db.recordRead(workId, d.title, d.author, p.coerceAtLeast(0f))
@@ -84,10 +88,15 @@ fun ReaderScreen(repo: Repo, workId: Long, onBack: () -> Unit) {
             }
             Text(
                 detail?.title ?: "阅读",
+                Modifier.weight(1f),
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            val loaded = detail
+            if (loaded != null) {
+                DownloadButton(repo = repo, detail = loaded, initiallyDownloaded = startDownloaded)
+            }
         }
 
         val d = detail
@@ -122,13 +131,22 @@ fun ReaderScreen(repo: Repo, workId: Long, onBack: () -> Unit) {
                             WebView(ctx).apply {
                                 settings.javaScriptEnabled = false
                                 webViewRef.value = this
+                                // onPageFinished 时 WebView 可能尚未布局（contentHeight 为 0），需等布局完成后再恢复位置
+                                fun restorePosition(attempt: Int) {
+                                    val max = maxScroll(this)
+                                    if (max > 0) {
+                                        scrollTo(0, (startFraction * max).toInt())
+                                        restored.value = true
+                                    } else if (attempt < 20) {
+                                        postDelayed({ restorePosition(attempt + 1) }, 50)
+                                    } else {
+                                        restored.value = true
+                                    }
+                                }
                                 webViewClient = object : WebViewClient() {
                                     override fun onPageFinished(view: WebView, url: String?) {
-                                        if (!restored.value && startFraction > 0.005f) {
-                                            val max = maxScroll(view)
-                                            if (max > 0) view.scrollTo(0, (startFraction * max).toInt())
-                                        }
-                                        restored.value = true
+                                        if (restored.value) return
+                                        if (startFraction > 0.005f) restorePosition(0) else restored.value = true
                                     }
 
                                     override fun shouldOverrideUrlLoading(

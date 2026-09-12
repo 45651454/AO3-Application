@@ -5,6 +5,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,7 +47,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.ao3application.data.ListingPage
 import com.example.ao3application.data.Repo
+import com.example.ao3application.data.Tag
 import com.example.ao3application.data.WorkSummary
+import com.example.ao3application.ui.theme.canonicalTagCategory
+import com.example.ao3application.ui.theme.tagColors
 import kotlinx.coroutines.launch
 
 private val SORT_OPTIONS = listOf(
@@ -53,6 +59,32 @@ private val SORT_OPTIONS = listOf(
     "revised_at" to "最近更新",
     "word_count" to "字数",
 )
+
+/**
+ * 卡片上每类标签的名额，同时充当白名单：不在表里的分类一律不显示（警告、分级、同人圈都在此列）。
+ * 关系和角色名额最大，保证它们不会被其他标签挤掉——详情页仍然完整展示警告。
+ */
+private val CARD_TAG_QUOTA = mapOf(
+    "relationship" to 4,
+    "character" to 4,
+    "freeform" to 3,
+    "category" to 1,
+)
+
+internal fun previewTags(tags: List<Tag>): List<Tag> {
+    val used = mutableMapOf<String, Int>()
+    return tags.filter { tag ->
+        val key = canonicalTagCategory(tag.category)
+        val max = CARD_TAG_QUOTA[key] ?: 0
+        val n = used[key] ?: 0
+        if (n < max) {
+            used[key] = n + 1
+            true
+        } else {
+            false
+        }
+    }.take(8)
+}
 
 class BrowseUiState {
     var query by mutableStateOf("")
@@ -215,6 +247,7 @@ fun BrowseScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WorkCard(work: WorkSummary, onClick: () -> Unit) {
     Column(
@@ -230,11 +263,10 @@ private fun WorkCard(work: WorkSummary, onClick: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        val badge = buildString {
-            append(work.rating)
-            if (work.warning.isNotEmpty()) append(" · ").append(work.warning)
-            append(if (work.isComplete) " · 完结" else " · 连载中")
-        }
+        val badge = listOfNotNull(
+            work.rating.ifEmpty { null },
+            if (work.isComplete) "完结" else "连载中",
+        ).joinToString(" · ")
         Text(
             badge,
             style = MaterialTheme.typography.labelSmall,
@@ -248,16 +280,36 @@ private fun WorkCard(work: WorkSummary, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (work.tags.isNotEmpty()) {
-            val names = work.tags.take(8).map { it.name }
-            val suffix = if (work.tags.size > 8) " …" else ""
-            Text(
-                names.joinToString(" · ") + suffix,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        val shownTags = previewTags(work.tags)
+        if (shownTags.isNotEmpty()) {
+            FlowRow(
+                Modifier.fillMaxWidth().padding(top = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                shownTags.forEach { tag ->
+                    val c = tagColors(tag.category)
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = c.container,
+                        contentColor = c.content,
+                    ) {
+                        Text(
+                            tag.name,
+                            Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+                if (work.tags.size > shownTags.size) {
+                    Text(
+                        "+${work.tags.size - shownTags.size}",
+                        Modifier.padding(vertical = 3.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
         if (work.summary.isNotEmpty()) {
             Text(

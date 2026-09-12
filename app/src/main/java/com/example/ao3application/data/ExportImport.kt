@@ -3,6 +3,7 @@ package com.example.ao3application.data
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -30,6 +31,7 @@ object ExportImport {
                     put("title", f.title)
                     put("author", f.author)
                     put("savedAt", f.savedAt)
+                    putJsonArray("tags") { for (t in f.tags) add(JsonPrimitive(t)) }
                 }
             }
             putJsonArray("history") {
@@ -62,6 +64,8 @@ object ExportImport {
                 title = o["title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                 author = o["author"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                 savedAt = o["savedAt"]?.jsonPrimitive?.longOrNull ?: 0L,
+                tags = (o["tags"] as? JsonArray).orEmpty()
+                    .mapNotNull { it.jsonPrimitive.contentOrNull },
             )
         }
         val history = (root["history"] as? JsonArray).orEmpty().mapNotNull { el ->

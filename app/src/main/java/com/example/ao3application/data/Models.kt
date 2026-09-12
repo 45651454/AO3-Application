@@ -31,7 +31,13 @@ data class WorkDetail(
 
 data class ListingPage(val works: List<WorkSummary>, val nextUrl: String?)
 
-data class SavedWork(val id: Long, val title: String, val author: String, val savedAt: Long)
+data class SavedWork(
+    val id: Long,
+    val title: String,
+    val author: String,
+    val savedAt: Long,
+    val tags: List<String> = emptyList(),
+)
 
 data class TagFavorite(val name: String, val href: String, val savedAt: Long)
 
