@@ -1,6 +1,13 @@
 package com.example.ao3application.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -14,8 +21,10 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.example.ao3application.data.Repo
 import com.example.ao3application.data.ThemeMode
@@ -29,6 +38,8 @@ sealed interface Screen {
     data class Reader(val id: Long) : Screen
 }
 
+private enum class NavMotion { Fade, Forward, Back }
+
 @Composable
 fun AppUi(
     repo: Repo,
@@ -37,9 +48,21 @@ fun AppUi(
 ) {
     val stack = remember { mutableStateOf(listOf<Screen>(Screen.Browse)) }
     val browseState = remember { BrowseUiState() }
-    val push: (Screen) -> Unit = { stack.value = stack.value + it }
-    val pop: () -> Unit = { if (stack.value.size > 1) stack.value = stack.value.dropLast(1) }
-    val switchTo: (Screen) -> Unit = { stack.value = listOf(it) }
+    var motion by remember { mutableStateOf(NavMotion.Fade) }
+    val push: (Screen) -> Unit = {
+        motion = NavMotion.Forward
+        stack.value = stack.value + it
+    }
+    val pop: () -> Unit = {
+        if (stack.value.size > 1) {
+            motion = NavMotion.Back
+            stack.value = stack.value.dropLast(1)
+        }
+    }
+    val switchTo: (Screen) -> Unit = {
+        motion = NavMotion.Fade
+        stack.value = listOf(it)
+    }
     val current = stack.value.last()
 
     BackHandler(enabled = stack.value.size > 1) { pop() }
@@ -71,46 +94,65 @@ fun AppUi(
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            when (val screen = current) {
-                is Screen.Browse -> BrowseScreen(
-                    repo = repo,
-                    tag = null,
-                    onOpenWork = { push(Screen.Detail(it)) },
-                    state = browseState,
-                )
+            AnimatedContent(
+                targetState = current,
+                transitionSpec = {
+                    when (motion) {
+                        NavMotion.Fade ->
+                            fadeIn(tween(220)) togetherWith fadeOut(tween(140))
 
-                is Screen.Library -> LibraryScreen(
-                    repo = repo,
-                    onOpenWork = { push(Screen.Detail(it)) },
-                    onOpenTag = { tag -> push(Screen.BrowseTag(tag.href, tag.name)) },
-                )
+                        NavMotion.Forward ->
+                            (slideInHorizontally(tween(280)) { it / 3 } + fadeIn(tween(280))) togetherWith
+                                (slideOutHorizontally(tween(280)) { -it / 6 } + fadeOut(tween(280)))
 
-                is Screen.Settings -> SettingsScreen(
-                    repo = repo,
-                    themeMode = themeMode,
-                    onThemeModeChange = onThemeModeChange,
-                )
+                        NavMotion.Back ->
+                            (slideInHorizontally(tween(280)) { -it / 3 } + fadeIn(tween(280))) togetherWith
+                                (slideOutHorizontally(tween(280)) { it / 6 } + fadeOut(tween(280)))
+                    }
+                },
+                label = "screen",
+            ) { screen ->
+                when (screen) {
+                    is Screen.Browse -> BrowseScreen(
+                        repo = repo,
+                        tag = null,
+                        onOpenWork = { push(Screen.Detail(it)) },
+                        state = browseState,
+                    )
 
-                is Screen.BrowseTag -> BrowseScreen(
-                    repo = repo,
-                    tag = screen,
-                    onOpenWork = { push(Screen.Detail(it)) },
-                    onBack = pop,
-                )
+                    is Screen.Library -> LibraryScreen(
+                        repo = repo,
+                        onOpenWork = { push(Screen.Detail(it)) },
+                        onOpenTag = { tag -> push(Screen.BrowseTag(tag.href, tag.name)) },
+                    )
 
-                is Screen.Detail -> DetailScreen(
-                    repo = repo,
-                    workId = screen.id,
-                    onBack = pop,
-                    onRead = { push(Screen.Reader(screen.id)) },
-                    onOpenTag = { tag -> push(Screen.BrowseTag(tag.href, tag.name)) },
-                )
+                    is Screen.Settings -> SettingsScreen(
+                        repo = repo,
+                        themeMode = themeMode,
+                        onThemeModeChange = onThemeModeChange,
+                    )
 
-                is Screen.Reader -> ReaderScreen(
-                    repo = repo,
-                    workId = screen.id,
-                    onBack = pop,
-                )
+                    is Screen.BrowseTag -> BrowseScreen(
+                        repo = repo,
+                        tag = screen,
+                        onOpenWork = { push(Screen.Detail(it)) },
+                        onBack = pop,
+                    )
+
+                    is Screen.Detail -> DetailScreen(
+                        repo = repo,
+                        workId = screen.id,
+                        onBack = pop,
+                        onRead = { push(Screen.Reader(screen.id)) },
+                        onOpenTag = { tag -> push(Screen.BrowseTag(tag.href, tag.name)) },
+                    )
+
+                    is Screen.Reader -> ReaderScreen(
+                        repo = repo,
+                        workId = screen.id,
+                        onBack = pop,
+                    )
+                }
             }
         }
     }
