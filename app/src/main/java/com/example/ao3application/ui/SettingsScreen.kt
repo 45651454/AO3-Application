@@ -7,10 +7,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -129,7 +127,15 @@ fun SettingsScreen(
                 )
             },
         )
-        Spacer(Modifier.height(24.dp))
+        HorizontalDivider(Modifier.padding(top = 24.dp))
+        Text(
+            "本应用是个人制作的第三方非官方应用，与 AO3（Archive of Our Own）及其运营方 OTW 无任何关联，" +
+                "也未获得其授权或认可。应用中的作品信息均来自 AO3 公开页面，仅供个人阅读与收藏使用。" +
+                "应用不提供登录功能，不会收集或上传任何个人数据。",
+            Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 32.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
