@@ -16,9 +16,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -40,6 +42,8 @@ fun SettingsScreen(
     repo: Repo,
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
+    showNsfw: Boolean,
+    onShowNsfwChange: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -107,6 +111,22 @@ fun SettingsScreen(
                     label = { Text(THEME_LABELS.getValue(mode)) },
                 )
             }
+        }
+
+        SectionTitle("内容")
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("显示 NSFW 作品", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "关闭后隐藏 Explicit / Mature 分级作品，书库中已收藏的内容不受影响。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = showNsfw, onCheckedChange = onShowNsfwChange)
         }
 
         SectionTitle("数据")

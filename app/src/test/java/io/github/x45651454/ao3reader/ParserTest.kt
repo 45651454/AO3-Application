@@ -1,6 +1,7 @@
 package io.github.x45651454.ao3reader
 
 import io.github.x45651454.ao3reader.data.Parser
+import io.github.x45651454.ao3reader.data.Rating
 import io.github.x45651454.ao3reader.data.WorkUnavailableException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -34,10 +35,46 @@ class ParserTest {
     }
 
     @Test
+    fun parseListingRatings() {
+        val page = Parser.parseListing(fixture("fluff_list.html"))
+        val ratings = page.works.map { it.rating }
+        // fixture 里五档分级齐全，每篇都必须解析出分级文本
+        assertEquals(20, ratings.size)
+        assertTrue(ratings.all { it.isNotEmpty() })
+        assertTrue("Explicit" in ratings)
+        assertTrue("Mature" in ratings)
+        assertTrue("Teen And Up Audiences" in ratings)
+        assertTrue("General Audiences" in ratings)
+        assertTrue("Not Rated" in ratings)
+        // NSFW = Explicit + Mature，fixture 里 3 + 5 篇
+        assertEquals(8, page.works.count { Rating.isNsfw(it.rating) })
+    }
+
+    @Test
+    fun parseListingRatingFallsBackToTitleAttr() {
+        // 容错：required-tags 里没有内层 .text 时退回 span 的 title 属性
+        val html = """
+            <html><body><ol class="work index group">
+            <li id="work_42" class="work blurb group">
+              <h4 class="heading"><a href="/works/42">No Text Span</a></h4>
+              <ul class="required-tags">
+                <li><span class="rating-mature rating" title="Mature"></span></li>
+              </ul>
+            </li>
+            </ol></body></html>
+        """.trimIndent()
+        val page = Parser.parseListing(html)
+        assertEquals(1, page.works.size)
+        assertEquals("Mature", page.works.first().rating)
+        assertTrue(Rating.isNsfw(page.works.first().rating))
+    }
+
+    @Test
     fun parseWorkPage() {
         val detail = Parser.parseWork(fixture("work_full.html"), 91583686L)
         assertEquals("Stolen Time", detail.title)
         assertEquals("outrageousboulefart", detail.author)
+        assertEquals("Teen And Up Audiences", detail.rating)
         assertEquals(11, detail.chapters.size)
         assertEquals("Chapter 1", detail.chapters.first().title)
         assertTrue(detail.chapters.first().html.contains("Attend the gala"))

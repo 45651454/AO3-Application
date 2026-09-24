@@ -21,6 +21,7 @@ class MainActivity : ComponentActivity() {
         val settings = SettingsStore(this)
         setContent {
             var themeMode by remember { mutableStateOf(settings.themeMode) }
+            var showNsfw by remember { mutableStateOf(settings.showNsfw) }
             val dark = when (themeMode) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.LIGHT -> false
@@ -33,6 +34,11 @@ class MainActivity : ComponentActivity() {
                     onThemeModeChange = {
                         settings.themeMode = it
                         themeMode = it
+                    },
+                    showNsfw = showNsfw,
+                    onShowNsfwChange = {
+                        settings.showNsfw = it
+                        showNsfw = it
                     },
                 )
             }

@@ -15,9 +15,10 @@ private const val FAVORITE_TAGS_TABLE =
         "PRIMARY KEY (work_id, tag))"
 
 // 离线下载：正文按章拆开存，避免把 HTML 塞进一个字段里再自己拆
+// v6 起冗余 rating，书库「已下载」和离线详情页可以显示分级徽章
 private const val DOWNLOADS_TABLE =
     "CREATE TABLE downloads (work_id INTEGER PRIMARY KEY, title TEXT NOT NULL, " +
-        "author TEXT NOT NULL, downloaded_at INTEGER NOT NULL)"
+        "author TEXT NOT NULL, downloaded_at INTEGER NOT NULL, rating TEXT NOT NULL DEFAULT '')"
 
 // schema v5 起正文 HTML 落到 filesDir 下的文件，表里只存元数据和相对路径，
 // 避免单行超过 CursorWindow 约 2MB 直接崩溃
@@ -31,14 +32,15 @@ private const val LEGACY_DOWNLOAD_CHAPTERS_TABLE =
         "title TEXT NOT NULL, html TEXT NOT NULL, PRIMARY KEY (work_id, idx))"
 
 class LibraryDb(context: Context) :
-    SQLiteOpenHelper(context.applicationContext, "library.db", null, 5) {
+    SQLiteOpenHelper(context.applicationContext, "library.db", null, 6) {
 
     private val filesDir: File = context.applicationContext.filesDir
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             "CREATE TABLE favorites (" +
-                "work_id INTEGER PRIMARY KEY, title TEXT NOT NULL, author TEXT NOT NULL, saved_at INTEGER NOT NULL)"
+                "work_id INTEGER PRIMARY KEY, title TEXT NOT NULL, author TEXT NOT NULL, " +
+                "saved_at INTEGER NOT NULL, rating TEXT NOT NULL DEFAULT '')"
         )
         db.execSQL(
             "CREATE TABLE history (" +
@@ -59,6 +61,14 @@ class LibraryDb(context: Context) :
             db.execSQL(LEGACY_DOWNLOAD_CHAPTERS_TABLE)
         }
         if (oldVersion < 5) migrateDownloadChaptersToFiles(db)
+        if (oldVersion < 6) {
+            // favorites 自 v1 就存在，直接加列；downloads 是 v4 才有的，
+            // 从 <4 升上来时刚用新结构建过表（已含 rating），不能再 ALTER 否则列重复
+            db.execSQL("ALTER TABLE favorites ADD COLUMN rating TEXT NOT NULL DEFAULT ''")
+            if (oldVersion >= 4) {
+                db.execSQL("ALTER TABLE downloads ADD COLUMN rating TEXT NOT NULL DEFAULT ''")
+            }
+        }
     }
 
     /** v4 → v5：把 download_chapters.html 逐行写到文件，再按新结构重建表。单行失败只丢那一章。 */
@@ -124,6 +134,7 @@ class LibraryDb(context: Context) :
         author: String,
         tags: List<String> = emptyList(),
         savedAt: Long = System.currentTimeMillis(),
+        rating: String = "",
     ) {
         runInTransaction {
             writableDatabase.insertWithOnConflict(
@@ -133,6 +144,7 @@ class LibraryDb(context: Context) :
                     put("title", title)
                     put("author", author)
                     put("saved_at", savedAt)
+                    put("rating", rating)
                 },
                 SQLiteDatabase.CONFLICT_REPLACE,
             )
@@ -204,7 +216,7 @@ class LibraryDb(context: Context) :
     fun favorites(): List<SavedWork> {
         val tagsByWork = favoriteTagsByWork()
         return readableDatabase
-            .rawQuery("SELECT work_id, title, author, saved_at FROM favorites ORDER BY saved_at DESC", null)
+            .rawQuery("SELECT work_id, title, author, saved_at, rating FROM favorites ORDER BY saved_at DESC", null)
             .use { c ->
                 buildList {
                     while (c.moveToNext()) {
@@ -216,6 +228,7 @@ class LibraryDb(context: Context) :
                                 c.getString(2),
                                 c.getLong(3),
                                 tagsByWork[id].orEmpty(),
+                                c.getString(4),
                             )
                         )
                     }
@@ -268,7 +281,7 @@ class LibraryDb(context: Context) :
     }
 
     fun upsertFavorite(saved: SavedWork) =
-        addFavorite(saved.id, saved.title, saved.author, saved.tags, saved.savedAt)
+        addFavorite(saved.id, saved.title, saved.author, saved.tags, saved.savedAt, saved.rating)
 
     fun tagFavorites(): List<TagFavorite> =
         readableDatabase
@@ -337,6 +350,7 @@ class LibraryDb(context: Context) :
                     put("title", detail.title)
                     put("author", detail.author)
                     put("downloaded_at", at)
+                    put("rating", detail.rating)
                 },
                 SQLiteDatabase.CONFLICT_REPLACE,
             )
@@ -361,14 +375,14 @@ class LibraryDb(context: Context) :
             .rawQuery("SELECT 1 FROM downloads WHERE work_id = ?", arrayOf(workId.toString()))
             .use { it.moveToFirst() }
 
-    /** 只有阅读需要的字段（标题/作者/正文）；标签、统计这些详情页才用，不落盘。 */
+    /** 只有阅读需要的字段（标题/作者/分级/正文）；标签、统计这些详情页才用，不落盘。 */
     fun downloadedWork(workId: Long): WorkDetail? {
         val head = readableDatabase
             .rawQuery(
-                "SELECT title, author FROM downloads WHERE work_id = ?",
+                "SELECT title, author, rating FROM downloads WHERE work_id = ?",
                 arrayOf(workId.toString()),
             )
-            .use { if (it.moveToFirst()) it.getString(0) to it.getString(1) else null }
+            .use { if (it.moveToFirst()) Triple(it.getString(0), it.getString(1), it.getString(2)) else null }
             ?: return null
         val rows = readableDatabase
             .rawQuery(
@@ -391,6 +405,7 @@ class LibraryDb(context: Context) :
             id = workId,
             title = head.first,
             author = head.second,
+            rating = head.third,
             summary = "",
             tags = emptyList(),
             stats = emptyMap(),
@@ -410,13 +425,13 @@ class LibraryDb(context: Context) :
     fun downloads(): List<SavedWork> =
         readableDatabase
             .rawQuery(
-                "SELECT work_id, title, author, downloaded_at FROM downloads ORDER BY downloaded_at DESC",
+                "SELECT work_id, title, author, downloaded_at, rating FROM downloads ORDER BY downloaded_at DESC",
                 null,
             )
             .use { c ->
                 buildList {
                     while (c.moveToNext()) {
-                        add(SavedWork(c.getLong(0), c.getString(1), c.getString(2), c.getLong(3)))
+                        add(SavedWork(c.getLong(0), c.getString(1), c.getString(2), c.getLong(3), rating = c.getString(4)))
                     }
                 }
             }

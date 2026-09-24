@@ -74,6 +74,8 @@ fun AppUi(
     repo: Repo,
     themeMode: ThemeMode,
     onThemeModeChange: (ThemeMode) -> Unit,
+    showNsfw: Boolean,
+    onShowNsfwChange: (Boolean) -> Unit,
 ) {
     val stack = rememberSaveable(
         stateSaver = listSaver<List<Screen>, Any>(
@@ -154,6 +156,7 @@ fun AppUi(
                         tag = null,
                         onOpenWork = { push(Screen.Detail(it)) },
                         state = browseState,
+                        showNsfw = showNsfw,
                     )
 
                     is Screen.Library -> LibraryScreen(
@@ -166,6 +169,8 @@ fun AppUi(
                         repo = repo,
                         themeMode = themeMode,
                         onThemeModeChange = onThemeModeChange,
+                        showNsfw = showNsfw,
+                        onShowNsfwChange = onShowNsfwChange,
                     )
 
                     is Screen.BrowseTag -> BrowseScreen(
@@ -173,6 +178,7 @@ fun AppUi(
                         tag = screen,
                         onOpenWork = { push(Screen.Detail(it)) },
                         onBack = pop,
+                        showNsfw = showNsfw,
                     )
 
                     is Screen.Detail -> DetailScreen(

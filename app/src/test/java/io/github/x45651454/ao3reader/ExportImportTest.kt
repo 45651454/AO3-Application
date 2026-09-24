@@ -61,6 +61,18 @@ class ExportImportTest {
     }
 
     @Test
+    fun roundTripWithRating() {
+        // 新格式：收藏带 rating 要能往返；空 rating 不写入 JSON，往返后仍相等
+        val favorites = listOf(
+            SavedWork(1L, "Hot", "A", 5L, rating = "Explicit"),
+            SavedWork(2L, "Calm", "B", 6L),
+        )
+        val text = ExportImport.export(favorites, emptyList(), emptyList())
+        val (imported, _, _) = ExportImport.parse(text)
+        assertEquals(favorites, imported)
+    }
+
+    @Test
     fun parseRejectsNonObjectRoot() {
         assertThrows(IllegalArgumentException::class.java) { ExportImport.parse("[1,2,3]") }
     }

@@ -168,6 +168,7 @@ fun LibraryScreen(
                                 subtitle = "by ${fav.author} · ${fmtTime(fav.savedAt)}",
                                 progress = null,
                                 tags = fav.tags,
+                                rating = fav.rating,
                                 onClick = { onOpenWork(fav.id) },
                                 onLongClick = { pendingFavorite = fav },
                             )
@@ -222,6 +223,7 @@ fun LibraryScreen(
                             title = work.title,
                             subtitle = "by ${work.author} · 下载于 ${fmtTime(work.savedAt)}",
                             progress = null,
+                            rating = work.rating,
                             onClick = { onOpenWork(work.id) },
                             onLongClick = { pendingDownload = work },
                         )
@@ -296,6 +298,7 @@ private fun LibraryRow(
     subtitle: String,
     progress: Float?,
     tags: List<String> = emptyList(),
+    rating: String = "",
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -306,7 +309,19 @@ private fun LibraryRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                title,
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            RatingBadge(rating)
+        }
         Text(
             subtitle,
             style = MaterialTheme.typography.bodySmall,

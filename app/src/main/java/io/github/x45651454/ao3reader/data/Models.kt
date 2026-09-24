@@ -23,6 +23,7 @@ data class WorkDetail(
     val id: Long,
     val title: String,
     val author: String,
+    val rating: String = "",
     val summary: String,
     val tags: List<Tag>,
     val stats: Map<String, String>,
@@ -37,6 +38,7 @@ data class SavedWork(
     val author: String,
     val savedAt: Long,
     val tags: List<String> = emptyList(),
+    val rating: String = "",
 )
 
 data class TagFavorite(val name: String, val href: String, val savedAt: Long)

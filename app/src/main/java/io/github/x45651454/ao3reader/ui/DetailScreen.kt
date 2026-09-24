@@ -193,6 +193,7 @@ fun DetailScreen(
                                     Modifier.weight(1f),
                                     style = MaterialTheme.typography.headlineSmall,
                                 )
+                                RatingBadge(d.rating, Modifier.padding(top = 4.dp))
                                 DownloadButton(
                                     repo = repo,
                                     detail = d,
@@ -262,7 +263,7 @@ fun DetailScreen(
                                         if (isFavorite) {
                                             repo.db.removeFavorite(workId)
                                         } else {
-                                            repo.db.addFavorite(workId, d.title, d.author)
+                                            repo.db.addFavorite(workId, d.title, d.author, rating = d.rating)
                                         }
                                     }
                                     if (isFavorite) savedTags = emptyList()
@@ -312,7 +313,7 @@ fun DetailScreen(
                         showTagPicker = false
                         scope.launch {
                             val mine = withContext(Dispatchers.IO) {
-                                repo.db.addFavorite(workId, d.title, d.author, tags)
+                                repo.db.addFavorite(workId, d.title, d.author, tags, rating = d.rating)
                                 repo.db.allFavoriteTags()
                             }
                             savedTags = tags

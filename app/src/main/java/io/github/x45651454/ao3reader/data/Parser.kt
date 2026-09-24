@@ -36,9 +36,9 @@ object Parser {
             id = id,
             title = titleEl?.text().orEmpty(),
             author = li.selectFirst("a[rel=author]")?.text() ?: "Anonymous",
-            rating = li.selectFirst(".required-tags span[class*=rating-] .text")?.text().orEmpty(),
-            warning = li.selectFirst(".required-tags span[class*=warning-] .text")?.text().orEmpty(),
-            category = li.selectFirst(".required-tags span[class*=category-] .text")?.text().orEmpty(),
+            rating = requiredTag(li, "rating-"),
+            warning = requiredTag(li, "warning-"),
+            category = requiredTag(li, "category-"),
             isComplete = li.selectFirst(".required-tags span.complete-yes") != null,
             fandoms = li.select("h5.fandoms a.tag").map { it.text() },
             tags = parseTagItems(li.select("ul.tags.commas li")),
@@ -46,6 +46,13 @@ object Parser {
             updated = li.selectFirst("p.datetime")?.text().orEmpty(),
             stats = parseStats(li.selectFirst("dl.stats")),
         )
+    }
+
+    /** required-tags 里的符号标签：优先内层 .text，缺了退回 span 的 title 属性，都没有给空串。 */
+    private fun requiredTag(li: Element, classPrefix: String): String {
+        val span = li.selectFirst(".required-tags span[class*=$classPrefix]") ?: return ""
+        return span.selectFirst(".text")?.text()?.takeIf { it.isNotEmpty() }
+            ?: span.attr("title").orEmpty()
     }
 
     fun parseWork(html: String, workId: Long): WorkDetail {
@@ -64,6 +71,8 @@ object Parser {
                 for (a in dd.select("a.tag")) add(Tag(a.text(), a.attr("href"), category))
             }
         }
+        // 分级单独冗余一份：dd.rating 里的第一个标签文本，取不到给空串
+        val rating = doc.selectFirst("dl.work.meta.group dd.rating a.tag")?.text()?.trim().orEmpty()
         val stats = LinkedHashMap<String, String>()
         doc.selectFirst("dd.language")?.let { stats["language"] = it.text() }
         stats.putAll(parseStats(doc.selectFirst("dd.stats dl.stats")))
@@ -92,6 +101,7 @@ object Parser {
             id = workId,
             title = title,
             author = author,
+            rating = rating,
             summary = paragraphsOf(doc.selectFirst("div.summary.module blockquote.userstuff")),
             tags = tags,
             stats = stats,

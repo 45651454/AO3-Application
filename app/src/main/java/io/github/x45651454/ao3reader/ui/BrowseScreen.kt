@@ -36,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -47,6 +48,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.x45651454.ao3reader.data.ListingPage
+import io.github.x45651454.ao3reader.data.Rating
 import io.github.x45651454.ao3reader.data.Repo
 import io.github.x45651454.ao3reader.data.Tag
 import io.github.x45651454.ao3reader.data.WorkSummary
@@ -165,10 +167,15 @@ fun BrowseScreen(
     onOpenWork: (Long) -> Unit,
     onBack: (() -> Unit)? = null,
     state: BrowseUiState = rememberSaveable(saver = BrowseUiStateSaver) { BrowseUiState() },
+    showNsfw: Boolean = true,
 ) {
     val s = state
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
+
+    // 只在渲染层过滤：state.works 与 Saver 里始终是原始未过滤数据，
+    // 开关切换时重组即可立即生效，不动网络请求和分页（nextUrl）。
+    val visibleWorks = remember(s.works, showNsfw) { Rating.filterVisible(s.works, showNsfw) }
 
     fun load(fetch: suspend () -> ListingPage, append: Boolean) {
         scope.launch {
@@ -283,7 +290,7 @@ fun BrowseScreen(
                 )
 
                 else -> LazyColumn(Modifier.fillMaxSize(), state = s.listState) {
-                    items(s.works, key = { it.id }) { work ->
+                    items(visibleWorks, key = { it.id }) { work ->
                         WorkCard(work, onClick = { onOpenWork(work.id) })
                     }
                     item {
@@ -318,7 +325,17 @@ private fun WorkCard(work: WorkSummary, onClick: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(work.title, style = MaterialTheme.typography.titleMedium)
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                work.title,
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            RatingBadge(work.rating)
+        }
         Text(
             "by ${work.author} · ${work.updated}",
             style = MaterialTheme.typography.bodySmall,

@@ -32,6 +32,8 @@ object ExportImport {
                     put("title", f.title)
                     put("author", f.author)
                     put("savedAt", f.savedAt)
+                    // rating 是后加的字段：空值不写，旧版本应用读到也不受影响（它只认已知键）
+                    if (f.rating.isNotEmpty()) put("rating", f.rating)
                     putJsonArray("tags") { for (t in f.tags) add(JsonPrimitive(t)) }
                 }
             }
@@ -73,6 +75,8 @@ object ExportImport {
                 savedAt = (o["savedAt"] as? JsonPrimitive)?.longOrNull ?: 0L,
                 tags = (o["tags"] as? JsonArray).orEmpty()
                     .mapNotNull { (it as? JsonPrimitive)?.contentOrNull },
+                // 旧备份没有 rating 字段，缺省为空串（不显示徽章）
+                rating = (o["rating"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
             )
         }
         val history = (root["history"] as? JsonArray).orEmpty().mapNotNull { el ->
