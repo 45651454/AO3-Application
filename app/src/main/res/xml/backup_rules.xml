@@ -1,13 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   书库数据库与界面偏好属于隐私数据，且应用已在设置页提供手动导出/导入，
+   因此不纳入云端自动备份。（API 30 及以下设备使用本文件）
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="database" path="library.db"/>
+    <exclude domain="sharedpref" path="settings.xml"/>
 </full-backup-content>

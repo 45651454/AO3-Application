@@ -14,13 +14,13 @@ val keystoreProps = Properties().apply {
 val releaseKeystore = keystoreProps.getProperty("storeFile")?.let { file(it) }?.takeIf { it.exists() }
 
 android {
-    namespace = "com.example.ao3application"
+    namespace = "io.github.x45651454.ao3reader"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.example.ao3application"
+        applicationId = "io.github.x45651454.ao3reader"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
@@ -42,9 +42,14 @@ android {
 
     buildTypes {
         release {
+            // AGP 9 新 DSL：enable = true 同时开启 R8 代码压缩混淆与资源压缩。
             optimization {
-                enable = false
+                enable = true
             }
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "src/main/keepRules/rules.keep"
+            )
             if (releaseKeystore != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
