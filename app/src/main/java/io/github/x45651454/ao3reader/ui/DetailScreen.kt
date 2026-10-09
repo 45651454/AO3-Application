@@ -14,29 +14,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -90,6 +82,7 @@ fun DetailScreen(
     onBack: () -> Unit,
     onRead: () -> Unit,
     onOpenTag: (Tag) -> Unit,
+    onOpenTagPicker: (workId: Long, title: String, author: String, rating: String, workTags: List<String>) -> Unit,
 ) {
     var detail by remember { mutableStateOf<WorkDetail?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -98,10 +91,8 @@ fun DetailScreen(
     var progress by remember { mutableStateOf(-1f) }
     var favTagNames by remember { mutableStateOf(emptySet<String>()) }
     var savedTags by remember { mutableStateOf(emptyList<String>()) }
-    var knownTags by remember { mutableStateOf(emptyList<String>()) }
     var downloaded by remember { mutableStateOf(false) }
     var offlineCopy by remember { mutableStateOf(false) }
-    var showTagPicker by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -124,7 +115,6 @@ fun DetailScreen(
                 progress = repo.db.progressFor(workId)
                 favTagNames = repo.db.tagFavorites().map { it.name }.toSet()
                 savedTags = repo.db.favoriteTagsFor(workId)
-                knownTags = repo.db.allFavoriteTags()
                 downloaded = repo.db.isDownloaded(workId)
             }
         } catch (e: Exception) {
@@ -271,7 +261,18 @@ fun DetailScreen(
                                 }
                             },
                             onLongClickLabel = "按标签收藏",
-                            onLongClick = { showTagPicker = true },
+                            onLongClick = {
+                                onOpenTagPicker(
+                                    workId,
+                                    d.title,
+                                    d.author,
+                                    d.rating,
+                                    d.tags
+                                        .filter { canonicalTagCategory(it.category) == "relationship" }
+                                        .map { it.name }
+                                        .distinct(),
+                                )
+                            },
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -298,35 +299,6 @@ fun DetailScreen(
                 Button(onClick = onRead) {
                     Text(if (progress > 0.01f) "继续阅读 ${(progress * 100).toInt()}%" else "开始阅读")
                 }
-            }
-
-            if (showTagPicker) {
-                TagPickerDialog(
-                    relationshipTags = d.tags
-                        .filter { canonicalTagCategory(it.category) == "relationship" }
-                        .map { it.name }
-                        .distinct(),
-                    knownTags = knownTags,
-                    initial = savedTags,
-                    onDismiss = { showTagPicker = false },
-                    onConfirm = { tags ->
-                        showTagPicker = false
-                        scope.launch {
-                            val mine = withContext(Dispatchers.IO) {
-                                repo.db.addFavorite(workId, d.title, d.author, tags, rating = d.rating)
-                                repo.db.allFavoriteTags()
-                            }
-                            savedTags = tags
-                            knownTags = mine
-                            isFavorite = true
-                            Toast.makeText(
-                                context,
-                                if (tags.isEmpty()) "已收藏" else "已收藏，标签：${tags.joinToString("、")}",
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }
-                    },
-                )
             }
         }
     }
@@ -383,106 +355,5 @@ private fun TagChip(
             Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             style = MaterialTheme.typography.labelLarge,
         )
-    }
-}
-
-/** 长按收藏按钮弹出：勾选作品的关系标签、以前用过/建过的标签，或自己填（逗号分隔）。 */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun TagPickerDialog(
-    relationshipTags: List<String>,
-    knownTags: List<String>,
-    initial: List<String>,
-    onDismiss: () -> Unit,
-    onConfirm: (List<String>) -> Unit,
-) {
-    var selected by remember { mutableStateOf(initial.toSet()) }
-    var custom by remember { mutableStateOf("") }
-    // 作品自己的关系标签单独一组，"我的标签"里不重复列
-    val mine = knownTags.filterNot { it in relationshipTags.toSet() }
-    val typed = selected - relationshipTags.toSet() - mine.toSet()
-
-    fun addCustom() {
-        val parts = custom.split(',', '，', '、').map { it.trim() }.filter { it.isNotEmpty() }
-        if (parts.isNotEmpty()) selected = selected + parts
-        custom = ""
-    }
-
-    val toggle: (String) -> Unit = { name ->
-        selected = if (name in selected) selected - name else selected + name
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("按标签收藏") },
-        text = {
-            Column(
-                Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (relationshipTags.isNotEmpty()) {
-                    PickChips(
-                        "作品的关系标签",
-                        tagColors("relationship").content,
-                        relationshipTags,
-                        selected,
-                        toggle,
-                    )
-                }
-                if (mine.isNotEmpty()) {
-                    PickChips("我的标签", MaterialTheme.colorScheme.primary, mine, selected, toggle)
-                }
-
-                Text("自定义标签", style = MaterialTheme.typography.labelMedium)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = custom,
-                        onValueChange = { custom = it },
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("多个用逗号分隔") },
-                        singleLine = true,
-                    )
-                    TextButton(onClick = { addCustom() }) { Text("添加") }
-                }
-                if (typed.isNotEmpty()) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        typed.forEach { name ->
-                            FilterChip(
-                                selected = true,
-                                onClick = { toggle(name) },
-                                label = { Text(name) },
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { onConfirm(selected.toList()) }) { Text("收藏") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
-}
-
-/** 一组可勾选标签。限高自己滚，别把下面的自定义输入挤出屏幕。 */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun PickChips(
-    label: String,
-    labelColor: Color,
-    tags: List<String>,
-    selected: Set<String>,
-    onToggle: (String) -> Unit,
-) {
-    Text(label, style = MaterialTheme.typography.labelMedium, color = labelColor)
-    FlowRow(
-        Modifier.heightIn(max = 160.dp).verticalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        tags.forEach { name ->
-            FilterChip(
-                selected = name in selected,
-                onClick = { onToggle(name) },
-                label = { Text(name) },
-            )
-        }
     }
 }

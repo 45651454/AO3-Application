@@ -31,8 +31,15 @@ private const val LEGACY_DOWNLOAD_CHAPTERS_TABLE =
     "CREATE TABLE download_chapters (work_id INTEGER NOT NULL, idx INTEGER NOT NULL, " +
         "title TEXT NOT NULL, html TEXT NOT NULL, PRIMARY KEY (work_id, idx))"
 
+// v7 起收藏标签名有注册表：「新建」的标签即使还没打到任何作品上也会留存
+private const val FAV_TAG_REGISTRY_TABLE =
+    "CREATE TABLE fav_tag_registry (name TEXT PRIMARY KEY)"
+
+/** 收藏标签名规范化：去首尾空白，纯空白/空串返回 null。 */
+fun normalizeFavoriteTagName(raw: String): String? = raw.trim().takeIf { it.isNotEmpty() }
+
 class LibraryDb(context: Context) :
-    SQLiteOpenHelper(context.applicationContext, "library.db", null, 6) {
+    SQLiteOpenHelper(context.applicationContext, "library.db", null, 7) {
 
     private val filesDir: File = context.applicationContext.filesDir
 
@@ -49,6 +56,7 @@ class LibraryDb(context: Context) :
         )
         db.execSQL(TAG_FAVORITES_TABLE)
         db.execSQL(FAVORITE_TAGS_TABLE)
+        db.execSQL(FAV_TAG_REGISTRY_TABLE)
         db.execSQL(DOWNLOADS_TABLE)
         db.execSQL(DOWNLOAD_CHAPTERS_TABLE)
     }
@@ -68,6 +76,13 @@ class LibraryDb(context: Context) :
             if (oldVersion >= 4) {
                 db.execSQL("ALTER TABLE downloads ADD COLUMN rating TEXT NOT NULL DEFAULT ''")
             }
+        }
+        if (oldVersion < 7) {
+            // favorite_tags 在 <3 的分支里刚建过，到这里一定存在
+            db.execSQL(FAV_TAG_REGISTRY_TABLE)
+            db.execSQL(
+                "INSERT OR IGNORE INTO fav_tag_registry (name) SELECT DISTINCT tag FROM favorite_tags"
+            )
         }
     }
 
@@ -180,7 +195,23 @@ class LibraryDb(context: Context) :
                 },
                 SQLiteDatabase.CONFLICT_REPLACE,
             )
+            registerFavoriteTag(db, tag)
         }
+    }
+
+    private fun registerFavoriteTag(db: SQLiteDatabase, name: String) {
+        db.insertWithOnConflict(
+            "fav_tag_registry", null,
+            ContentValues().apply { put("name", name) },
+            SQLiteDatabase.CONFLICT_IGNORE,
+        )
+    }
+
+    /** 「新建」标签：写进注册表留存。空名/纯空白拒绝返回 null，重名幂等返回规范化后的名字。 */
+    fun registerFavoriteTag(name: String): String? {
+        val normalized = normalizeFavoriteTagName(name) ?: return null
+        registerFavoriteTag(writableDatabase, normalized)
+        return normalized
     }
 
     fun favoriteTagsFor(workId: Long): List<String> =
@@ -200,13 +231,10 @@ class LibraryDb(context: Context) :
         return out
     }
 
-    /** 书库筛选用的标签列表，按使用次数从多到少。 */
+    /** 全部收藏标签（注册表），包含还没打到任何作品上的「新建」标签。 */
     fun allFavoriteTags(): List<String> =
         readableDatabase
-            .rawQuery(
-                "SELECT tag, COUNT(*) AS c FROM favorite_tags GROUP BY tag ORDER BY c DESC, tag ASC",
-                null,
-            )
+            .rawQuery("SELECT name FROM fav_tag_registry ORDER BY name COLLATE NOCASE", null)
             .use { c ->
                 buildList {
                     while (c.moveToNext()) add(c.getString(0))
@@ -261,6 +289,16 @@ class LibraryDb(context: Context) :
         readableDatabase
             .rawQuery("SELECT progress FROM history WHERE work_id = ?", arrayOf(id.toString()))
             .use { if (it.moveToFirst()) it.getFloat(0) else -1f }
+
+    /** 全量 work_id → 阅读进度映射，给列表页一次性取走。history 行数很小，全量比按 id 批量查简单。 */
+    fun progressMap(): Map<Long, Float> =
+        readableDatabase
+            .rawQuery("SELECT work_id, progress FROM history", null)
+            .use { c ->
+                buildMap {
+                    while (c.moveToNext()) put(c.getLong(0), c.getFloat(1))
+                }
+            }
 
     fun history(): List<HistoryEntry> =
         readableDatabase

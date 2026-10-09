@@ -55,7 +55,10 @@ import io.github.x45651454.ao3reader.data.WorkSummary
 import io.github.x45651454.ao3reader.ui.theme.canonicalTagCategory
 import io.github.x45651454.ao3reader.ui.theme.tagColors
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val SORT_OPTIONS = listOf(
     "_score" to "最佳匹配",
@@ -173,6 +176,15 @@ fun BrowseScreen(
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
+    // 作品 id → 阅读进度。进入本页时（含从阅读页返回）重新拉一次；
+    // 延迟 400ms 是因为阅读页的进度落盘在退出动画（约 280ms）结束的 onDispose 里才执行，
+    // 立即查询会读到旧值。
+    var progressMap by remember { mutableStateOf(emptyMap<Long, Float>()) }
+    LaunchedEffect(Unit) {
+        delay(400)
+        progressMap = withContext(Dispatchers.IO) { repo.db.progressMap() }
+    }
+
     // 只在渲染层过滤：state.works 与 Saver 里始终是原始未过滤数据，
     // 开关切换时重组即可立即生效，不动网络请求和分页（nextUrl）。
     val visibleWorks = remember(s.works, showNsfw) { Rating.filterVisible(s.works, showNsfw) }
@@ -183,7 +195,15 @@ fun BrowseScreen(
             s.error = null
             try {
                 val page = fetch()
-                s.works = if (append) s.works + page.works else page.works
+                // AO3 搜索索引在两页请求之间会漂移（限速拉长了间隔，概率更高），
+                // 第 N+1 页可能带回第 N 页已有的作品；LazyColumn 的 key 遇重复 id
+                // 直接崩溃（实测 Key "xxx" was already used），追加前按 id 去重。
+                s.works = if (append) {
+                    val seen = s.works.mapTo(HashSet()) { it.id }
+                    s.works + page.works.filter { it.id !in seen }
+                } else {
+                    page.works
+                }
                 s.nextUrl = page.nextUrl
                 if (!append) s.listState.scrollToItem(0)
             } catch (e: Exception) {
@@ -201,8 +221,21 @@ fun BrowseScreen(
         load({ repo.search(s.query, s.sort, s.completeOnly) }, append = false)
     }
 
+    // 标签流内的「结果内筛选」：清空旧结果后用 work_search[query] 重新拉该标签流。
+    // 清空输入再提交 = 回到无筛选的标签流。
+    fun runTagFilter() {
+        val t = tag ?: return
+        focusManager.clearFocus()
+        s.works = emptyList()
+        s.nextUrl = null
+        load({ repo.listing(t.url, s.query) }, append = false)
+    }
+
+    // 结果为空才请求：首次进入正常加载；旋转/从详情页返回时结果已被 Saver 恢复，
+    // 不重复请求（1 次/秒限速下每次请求都很贵）。应用筛选时会先清空结果再显式加载。
     LaunchedEffect(tag?.url) {
-        if (tag != null) load({ repo.listing(tag.url) }, append = false)
+        val t = tag ?: return@LaunchedEffect
+        if (s.works.isEmpty()) load({ repo.listing(t.url, s.query) }, append = false)
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -221,8 +254,24 @@ fun BrowseScreen(
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
             }
+            // 对应网页版标签页的「Search within results」：概念流不变，结果内再圈关键词
+            OutlinedTextField(
+                value = s.query,
+                onValueChange = { s.query = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                placeholder = { Text("在「${tag.label}」的结果内筛选") },
+                singleLine = true,
+                trailingIcon = {
+                    IconButton(onClick = { runTagFilter() }) {
+                        Icon(Icons.Filled.Search, contentDescription = "筛选")
+                    }
+                },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { runTagFilter() }),
+            )
         } else {
             OutlinedTextField(
                 value = s.query,
@@ -278,7 +327,8 @@ fun BrowseScreen(
                     Text(err)
                     Spacer(Modifier.height(8.dp))
                     Button(onClick = {
-                        if (tag != null) load({ repo.listing(tag.url) }, false)
+                        // 重试要带上结果内筛选词，否则筛选状态下重试会退回完整标签流
+                        if (tag != null) load({ repo.listing(tag.url, s.query) }, false)
                         else if (s.searched) runSearch()
                     }) { Text("重试") }
                 }
@@ -291,7 +341,7 @@ fun BrowseScreen(
 
                 else -> LazyColumn(Modifier.fillMaxSize(), state = s.listState) {
                     items(visibleWorks, key = { it.id }) { work ->
-                        WorkCard(work, onClick = { onOpenWork(work.id) })
+                        WorkCard(work, progress = progressMap[work.id], onClick = { onOpenWork(work.id) })
                     }
                     item {
                         Column(
@@ -317,7 +367,7 @@ fun BrowseScreen(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun WorkCard(work: WorkSummary, onClick: () -> Unit) {
+private fun WorkCard(work: WorkSummary, progress: Float?, onClick: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -335,6 +385,16 @@ private fun WorkCard(work: WorkSummary, onClick: () -> Unit) {
                 style = MaterialTheme.typography.titleMedium,
             )
             RatingBadge(work.rating)
+            // 进度小字跟在 NSFW 徽章之后，无底色、语义色，不抢标题视觉重心
+            progress?.let(::progressLabel)?.let { label ->
+                Text(
+                    label,
+                    Modifier.padding(start = 8.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
         }
         Text(
             "by ${work.author} · ${work.updated}",

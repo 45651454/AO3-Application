@@ -2,7 +2,6 @@ package io.github.x45651454.ao3reader.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,11 +13,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
@@ -35,13 +35,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.x45651454.ao3reader.R
 import io.github.x45651454.ao3reader.data.HistoryEntry
 import io.github.x45651454.ao3reader.data.Repo
 import io.github.x45651454.ao3reader.data.SavedWork
 import io.github.x45651454.ao3reader.data.TagFavorite
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -67,6 +70,9 @@ fun LibraryScreen(
     repo: Repo,
     onOpenWork: (Long) -> Unit,
     onOpenTag: (TagFavorite) -> Unit,
+    tagFilter: String?,
+    untaggedOnly: Boolean,
+    onOpenTagFilter: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(0) }
     var refresh by remember { mutableStateOf(0) }
@@ -74,12 +80,11 @@ fun LibraryScreen(
     var history by remember { mutableStateOf(emptyList<HistoryEntry>()) }
     var tagFavorites by remember { mutableStateOf(emptyList<TagFavorite>()) }
     var downloads by remember { mutableStateOf(emptyList<SavedWork>()) }
-    var tagFilter by rememberSaveable { mutableStateOf<String?>(null) }
-    var untaggedOnly by rememberSaveable { mutableStateOf(false) }
     var pendingFavorite by remember { mutableStateOf<SavedWork?>(null) }
     var pendingHistory by remember { mutableStateOf<HistoryEntry?>(null) }
     var pendingTag by remember { mutableStateOf<TagFavorite?>(null) }
     var pendingDownload by remember { mutableStateOf<SavedWork?>(null) }
+    var progressMap by remember { mutableStateOf(emptyMap<Long, Float>()) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(refresh) {
@@ -89,14 +94,37 @@ fun LibraryScreen(
             tagFavorites = repo.db.tagFavorites()
             downloads = repo.db.downloads()
         }
+        // 阅读页退出时的进度落盘在退出动画（约 280ms）结束的 onDispose 里才执行，
+        // 延迟一点再查进度映射，避免从阅读页返回时读到旧值
+        delay(400)
+        progressMap = withContext(Dispatchers.IO) { repo.db.progressMap() }
     }
 
     Column(Modifier.fillMaxSize()) {
-        Text(
-            "书库",
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
-            style = MaterialTheme.typography.titleLarge,
-        )
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "书库",
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.titleLarge,
+            )
+            // 标签筛选入口只在收藏 tab 出现；筛选生效时图标染主题色提示
+            if (tab == 0) {
+                val filterActive = untaggedOnly || tagFilter != null
+                IconButton(onClick = onOpenTagFilter) {
+                    Icon(
+                        painterResource(R.drawable.ic_filter_list),
+                        contentDescription = "按标签筛选",
+                        tint = if (filterActive) MaterialTheme.colorScheme.primary
+                        else LocalContentColor.current,
+                    )
+                }
+            }
+        }
 
         PrimaryTabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("收藏 (${favorites.size})") })
@@ -109,54 +137,16 @@ fun LibraryScreen(
             if (favorites.isEmpty()) {
                 EmptyHint("还没有收藏。\n在作品详情页点 ♡ 收藏，长按 ♡ 可按标签收藏。")
             } else {
+                // 筛选状态由 AppUi 持有、筛选页修改；tag 被从所有收藏上摘掉后自动失效
                 val allTags = favorites.flatMap { it.tags }.distinct().sorted()
                 val hasUntagged = favorites.any { it.tags.isEmpty() }
                 val active = tagFilter?.takeIf { it in allTags }
                 val showUntagged = untaggedOnly && hasUntagged
                 val shown = filterFavorites(favorites, active, showUntagged)
 
-                if (allTags.isNotEmpty() || hasUntagged) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        FilterChip(
-                            selected = active == null && !showUntagged,
-                            onClick = {
-                                tagFilter = null
-                                untaggedOnly = false
-                            },
-                            label = { Text("全部") },
-                        )
-                        if (hasUntagged) {
-                            FilterChip(
-                                selected = showUntagged,
-                                onClick = {
-                                    untaggedOnly = !untaggedOnly
-                                    tagFilter = null
-                                },
-                                label = { Text("未标注") },
-                            )
-                        }
-                        allTags.forEach { tag ->
-                            FilterChip(
-                                selected = active == tag,
-                                onClick = {
-                                    tagFilter = if (active == tag) null else tag
-                                    untaggedOnly = false
-                                },
-                                label = { Text(tag) },
-                            )
-                        }
-                    }
-                }
-
                 if (shown.isEmpty()) {
                     EmptyHint(
-                        if (showUntagged) "收藏里没有未标注标签的作品。"
+                        if (showUntagged) "收藏里没有未打标签的作品。"
                         else "没有标签「$active」的收藏。"
                     )
                 } else {
@@ -167,6 +157,7 @@ fun LibraryScreen(
                                 title = fav.title,
                                 subtitle = "by ${fav.author} · ${fmtTime(fav.savedAt)}",
                                 progress = null,
+                                progressLabel = progressMap[fav.id]?.let(::progressLabel),
                                 tags = fav.tags,
                                 rating = fav.rating,
                                 onClick = { onOpenWork(fav.id) },
@@ -223,6 +214,7 @@ fun LibraryScreen(
                             title = work.title,
                             subtitle = "by ${work.author} · 下载于 ${fmtTime(work.savedAt)}",
                             progress = null,
+                            progressLabel = progressMap[work.id]?.let(::progressLabel),
                             rating = work.rating,
                             onClick = { onOpenWork(work.id) },
                             onLongClick = { pendingDownload = work },
@@ -297,6 +289,7 @@ private fun LibraryRow(
     title: String,
     subtitle: String,
     progress: Float?,
+    progressLabel: String? = null,
     tags: List<String> = emptyList(),
     rating: String = "",
     onClick: () -> Unit,
@@ -321,6 +314,16 @@ private fun LibraryRow(
                 overflow = TextOverflow.Ellipsis,
             )
             RatingBadge(rating)
+            // 进度小字跟在分级徽章之后，无底色、语义色，同浏览列表样式
+            if (progressLabel != null) {
+                Text(
+                    progressLabel,
+                    Modifier.padding(start = 8.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
         }
         Text(
             subtitle,

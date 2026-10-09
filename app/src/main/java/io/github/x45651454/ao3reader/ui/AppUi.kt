@@ -35,8 +35,16 @@ sealed interface Screen {
     data object Browse : Screen
     data object Library : Screen
     data object Settings : Screen
+    data object LibraryTagFilter : Screen
     data class BrowseTag(val url: String, val label: String) : Screen
     data class Detail(val id: Long) : Screen
+    data class TagPicker(
+        val id: Long,
+        val title: String,
+        val author: String,
+        val rating: String,
+        val workTags: List<String>,
+    ) : Screen
     data class Reader(val id: Long) : Screen
 }
 
@@ -50,8 +58,12 @@ private fun screenToSaveable(screen: Screen): Any = when (screen) {
     Screen.Browse -> "browse"
     Screen.Library -> "library"
     Screen.Settings -> "settings"
+    Screen.LibraryTagFilter -> "librarytagfilter"
     is Screen.BrowseTag -> arrayListOf("tag", screen.url, screen.label)
     is Screen.Detail -> arrayListOf("detail", screen.id)
+    is Screen.TagPicker -> arrayListOf(
+        "tagpicker", screen.id, screen.title, screen.author, screen.rating, ArrayList(screen.workTags),
+    )
     is Screen.Reader -> arrayListOf("reader", screen.id)
 }
 
@@ -59,9 +71,17 @@ private fun screenFromSaveable(value: Any): Screen? = when (value) {
     "browse" -> Screen.Browse
     "library" -> Screen.Library
     "settings" -> Screen.Settings
+    "librarytagfilter" -> Screen.LibraryTagFilter
     is List<*> -> when (value.firstOrNull()) {
         "tag" -> Screen.BrowseTag(value[1] as String, value[2] as String)
         "detail" -> Screen.Detail((value[1] as Number).toLong())
+        "tagpicker" -> Screen.TagPicker(
+            (value[1] as Number).toLong(),
+            value[2] as String,
+            value[3] as String,
+            value[4] as String,
+            @Suppress("UNCHECKED_CAST") (value[5] as List<String>),
+        )
         "reader" -> Screen.Reader((value[1] as Number).toLong())
         else -> null
     }
@@ -86,6 +106,10 @@ fun AppUi(
         ),
     ) { mutableStateOf(listOf(Screen.Browse)) }
     val browseState = rememberSaveable(saver = BrowseUiStateSaver) { BrowseUiState() }
+    // 收藏的标签筛选提升到这层：筛选页（TagFilterScreen）改了它再 pop，
+    // 回到书库时列表按新筛选渲染；rememberSaveable 保住旋转/进程重建
+    var libTagFilter by rememberSaveable { mutableStateOf<String?>(null) }
+    var libUntaggedOnly by rememberSaveable { mutableStateOf(false) }
     var motion by remember { mutableStateOf(NavMotion.Fade) }
     val push: (Screen) -> Unit = {
         motion = NavMotion.Forward
@@ -163,6 +187,9 @@ fun AppUi(
                         repo = repo,
                         onOpenWork = { push(Screen.Detail(it)) },
                         onOpenTag = { tag -> push(Screen.BrowseTag(tag.href, tag.name)) },
+                        tagFilter = libTagFilter,
+                        untaggedOnly = libUntaggedOnly,
+                        onOpenTagFilter = { push(Screen.LibraryTagFilter) },
                     )
 
                     is Screen.Settings -> SettingsScreen(
@@ -187,6 +214,31 @@ fun AppUi(
                         onBack = pop,
                         onRead = { push(Screen.Reader(screen.id)) },
                         onOpenTag = { tag -> push(Screen.BrowseTag(tag.href, tag.name)) },
+                        onOpenTagPicker = { id, title, author, rating, workTags ->
+                            push(Screen.TagPicker(id, title, author, rating, workTags))
+                        },
+                    )
+
+                    is Screen.TagPicker -> TagPickerScreen(
+                        repo = repo,
+                        workId = screen.id,
+                        title = screen.title,
+                        author = screen.author,
+                        rating = screen.rating,
+                        workTags = screen.workTags,
+                        onBack = pop,
+                    )
+
+                    is Screen.LibraryTagFilter -> TagFilterScreen(
+                        repo = repo,
+                        currentTag = libTagFilter,
+                        untaggedOnly = libUntaggedOnly,
+                        onSelect = { tag, untagged ->
+                            libTagFilter = tag
+                            libUntaggedOnly = untagged
+                            pop()
+                        },
+                        onBack = pop,
                     )
 
                     is Screen.Reader -> ReaderScreen(
